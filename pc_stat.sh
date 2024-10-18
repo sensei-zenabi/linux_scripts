@@ -11,9 +11,11 @@ fi
 INTERVAL=2
 MAX_TEMP=100  # Define the critical temperature threshold in °C
 BAR_WIDTH=50  # Fixed bar width in characters
+DAY_SECONDS=86400  # Number of seconds in a day (24 hours)
 
-# Clear the screen initially
-clear
+# Initialize arrays to store temperature readings and timestamps
+declare -a temperatures
+declare -a timestamps
 
 # Function to print a fixed-width horizontal temperature bar
 print_temp_bar() {
@@ -44,6 +46,30 @@ print_temp_bar() {
     printf "] (Max: 100°C)\n"
 }
 
+# Function to calculate and print the rolling daily average
+print_rolling_average() {
+    local current_time=$(date +%s)  # Get the current time in seconds
+    local rolling_sum=0
+    local valid_count=0
+
+    # Iterate through the temperature readings and calculate the average for the available data
+    for ((i = 0; i < ${#temperatures[@]}; i++)); do
+        # Include all data initially, and eventually consider the 24-hour window
+        if (( timestamps[i] >= current_time - DAY_SECONDS )); then
+            rolling_sum=$(echo "$rolling_sum + ${temperatures[i]}" | bc)
+            valid_count=$((valid_count + 1))
+        fi
+    done
+
+    # Calculate and display the average if we have valid readings
+    if [ "$valid_count" -gt 0 ]; then
+        local average=$(echo "scale=2; $rolling_sum / $valid_count" | bc)
+        printf "\nRolling Daily Average Temperature: \e[1;34m%.2f°C\e[0m\n" "$average"
+    else
+        echo "\nRolling Daily Average Temperature: N/A"
+    fi
+}
+
 # Start monitoring the temperature
 while true; do
     # Clear the screen for each new read
@@ -59,14 +85,25 @@ while true; do
     # Example: for CPU temperatures with 'Core' name
     core_temps=$(echo "$sensors_output" | grep 'Core' | awk '{print $3}' | sed 's/+//g;s/°C//g')
 
+    # Get the current timestamp
+    current_time=$(date +%s)
+
     # Loop through core temperatures and print a bar for each
     echo "CPU Core Temperatures:"
     echo "-----------------------"
-    
+
     for temp in $core_temps; do
+        temp=$(printf "%.0f" "$temp")  # Convert temperature to integer
         print_temp_bar "$temp"
+        # Store temperature and timestamp
+        temperatures+=("$temp")
+        timestamps+=("$current_time")
     done
+
+    # Display the rolling daily average
+    print_rolling_average
     
     # Wait for the defined interval before refreshing
     sleep $INTERVAL
 done
+
